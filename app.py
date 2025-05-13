@@ -478,7 +478,7 @@ def main():
             new_row_data["Client description"] = st.text_area("Kundebeskrivelse engelsk", height=68)
             new_row_data["Tidsramme_start"] = st.date_input("Start Dato")
             new_row_data["Tidsramme_slut"] = st.date_input("Slut Dato")
-            new_row_data["Konsulenter"] = st.text_area("Konsulenter(Projektleder)", placeholder="Skriv fuldt navn på konsulent(er)", height=68)
+            new_row_data["Konsulenter"] = st.text_area("Konsulenter", placeholder="Skriv fuldt navn på konsulent(er)", height=68)
             new_row_data["EVT. TI budgetandel"] = st.text_area("Budgetandel", placeholder="Tilføj TI's del af budgettet", height=68)
 
         with cols[3]:
