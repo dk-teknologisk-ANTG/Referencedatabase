@@ -9,6 +9,9 @@ from docx.shared import RGBColor, Pt
 import openpyxl
 import datetime
 
+os.environ['http_proxy'] = 'http://squid18.localdom.net:3128'
+os.environ['https_proxy'] = 'http://squid18.localdom.net:3128'
+
 url: str = "https://etxhbhpjqoaoowfoscob.supabase.co"
 key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eGhiaHBqcW9hb293Zm9zY29iIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NDcwNTAzNiwiZXhwIjoyMDYwMjgxMDM2fQ.xJ7aC9TrQU-qbdf6KBB9D4FmyANf3NSvEHhpO4-lUEQ"
 
@@ -43,81 +46,74 @@ def fetch_data(supabase, table_name, batch_size=1000):
     return df
 
 # OPDATER RÆKKER I SQL FRA STREAMLIT
+import pandas as pd
+import streamlit as st
+
 def update_multiple_rows(supabase, table_name, edited_data, original_data):
     try:
-        # Compare both DataFrames on 'opgave_id' instead of index
-        changes = []
-        
-        # Make a copy to avoid modifying the original
+        # Check if key column exists
+        if 'opgave_id' not in edited_data.columns or 'opgave_id' not in original_data.columns:
+            return False, "Kolonnen 'opgave_id' mangler i data."
+
         edited_df = edited_data.copy()
-        
-        # Remove the 'Select' column if it exists
-        if 'Select' in edited_df.columns:
-            edited_df = edited_df.drop('Select', axis=1)
-            
-        # Convert any datetime columns to same format in both DataFrames for accurate comparison
-        for col in edited_df.columns:
-            if pd.api.types.is_datetime64_any_dtype(edited_df[col]) or pd.api.types.is_datetime64_any_dtype(original_data[col]):
-                edited_df[col] = pd.to_datetime(edited_df[col])
-                original_data[col] = pd.to_datetime(original_data[col])
-        
-        # Find changed rows using opgave_id as the key
+
+        # Remove UI-specific columns like 'Select'
+        edited_df = edited_df.drop(columns=['Select'], errors='ignore')
+
+        # Align datetime formats
+        datetime_cols = [
+            col for col in edited_df.columns
+            if pd.api.types.is_datetime64_any_dtype(edited_df[col]) or 
+               pd.api.types.is_datetime64_any_dtype(original_data[col])
+        ]
+
+        for col in datetime_cols:
+            edited_df[col] = pd.to_datetime(edited_df[col], errors='coerce')
+            original_data[col] = pd.to_datetime(original_data[col], errors='coerce')
+
+        changes = []
+
+        # Compare rows
         for _, row in edited_df.iterrows():
             opgave_id = row['opgave_id']
-            
-            # Find matching row in original_data
-            original_rows = original_data[original_data['opgave_id'] == opgave_id]
-            
-            if len(original_rows) == 0:
-                # This is a new row - we shouldn't get here but handle it anyway
-                continue
-                
-            original_row = original_rows.iloc[0]
-            
-            # Check for differences by comparing the dictionaries
+            original_row = original_data[original_data['opgave_id'] == opgave_id]
+
+            if original_row.empty:
+                continue  # Possibly a new row, ignore
+
+            original_dict = original_row.iloc[0].to_dict()
             row_dict = row.to_dict()
-            original_dict = original_row.to_dict()
-            
-            # Check if any values are different
-            changed = False
-            for key in row_dict:
-                if key in original_dict:
-                    # Check if values are different, handling NaN values
-                    if pd.isna(row_dict[key]) and pd.isna(original_dict[key]):
-                        continue  # Both are NaN - no change
-                    elif pd.isna(row_dict[key]) != pd.isna(original_dict[key]):
-                        changed = True  # One is NaN but not the other
-                        break
-                    elif row_dict[key] != original_dict[key]:
-                        changed = True  # Values are different
-                        break
-            
-            if changed:
-                # Prepare data for update
-                update_dict = row.to_dict()
-                
-                # Convert datetime objects to ISO format
-                for key, value in update_dict.items():
-                    if pd.api.types.is_datetime64_any_dtype(type(value)) or isinstance(value, pd.Timestamp):
-                        update_dict[key] = value.isoformat() if not pd.isna(value) else None
-                    elif pd.isna(value):
-                        update_dict[key] = None
-                
-                changes.append({
-                    'data': update_dict,
-                    'opgave_id': opgave_id
-                })
-        
-        # Execute updates
+
+            # Detect changes
+            has_changed = any(
+                (pd.isna(row_dict[k]) != pd.isna(original_dict.get(k))) or 
+                (not pd.isna(row_dict[k]) and row_dict[k] != original_dict.get(k))
+                for k in row_dict if k in original_dict
+            )
+
+            if has_changed:
+                update_dict = {
+                    k: (
+                        v.isoformat() if isinstance(v, (pd.Timestamp, pd.DatetimeTZDtype)) else
+                        None if pd.isna(v) else v
+                    )
+                    for k, v in row_dict.items()
+                }
+
+                changes.append({'opgave_id': opgave_id, 'data': update_dict})
+
+        # Apply changes
         for change in changes:
             supabase.table(table_name) \
                 .update(change['data']) \
                 .eq('opgave_id', change['opgave_id']) \
                 .execute()
-        
-        return True, f"Opdaterede {len(changes)} rækker!"
+
+        return True, f"Opdaterede {len(changes)} rækker."
+    
     except Exception as e:
-        return False, f"Fejl ved opdatering: {str(e)}"
+        st.exception(e)
+        return False, f"Fejl under opdatering: {str(e)}"
     
 #Hent næstekommende opgave id
 def get_next_opgave_id(df):
@@ -379,7 +375,7 @@ def main():
         st.session_state.original_data = filtered_df.copy()
 
     # Tilføj en gem knap
-    if st.button("**Gem ændringer**"):
+    if st.button("** 💾 Gem ændringer**"):
         try:
             with st.spinner('Gemmer ændringer...'):
                 success, message = update_multiple_rows(
@@ -390,38 +386,40 @@ def main():
                 )
             
             if success:
-                # Try to extract the number of changes from the message
+                # Forsøg at finde antal ændringer
+                num_changes = None
                 try:
-                    if "rækker" in message:
-                        num_changes = int(message.split()[1])  # Extracting X from "Opdaterede X rækker successfully!"
-                        if num_changes > 0:
-                            st.success(f"✅ {message}")
-                            st.info(f"Database opdateret med {num_changes} ændring{'er' if num_changes > 1 else ''}")
-                        else:
-                            st.info("Ingen ændringer at gemme")
-                    else:
-                        st.success("✅ Ændringer er gemt")
-                except (ValueError, IndexError):
-                    # If parsing fails, just show the success message
+                    # Forventet format: "Opdaterede X rækker"
+                    parts = message.split()
+                    if "Opdaterede" in parts and "rækker" in parts:
+                        idx = parts.index("Opdaterede")
+                        num_changes = int(parts[idx + 1])
+                except Exception:
+                    pass  # Ignore parsing error, fallback below
+
+                if num_changes is not None and num_changes > 0:
+                    st.success(f"✅ {message}")
+                    st.info(f"Database opdateret med {num_changes} ændring{'er' if num_changes > 1 else ''}")
+                elif num_changes == 0:
+                    st.info("Ingen ændringer at gemme")
+                else:
                     st.success("✅ Ændringer er gemt")
-                
-                # Update session state data
+
+                # Opdater session state
                 st.session_state.data = fetch_data(supabase, table_name)
-                
-                # Update original_data with the current filtered data
-                st.session_state.original_data = edited_data.copy()
-                
-                # Reload the page
+                st.session_state.original_data = st.session_state.data.copy()
+
+                # Genindlæs siden
                 time.sleep(0.5)
                 st.rerun()
             else:
-                st.error(f"❌ Fejl i forsøget på at gemme: {message}")
-                st.warning("Prøv venligst igen eller kontakt support hvis problemet fortsætter")
-            
+                st.error("❌ Fejl i forsøget på at gemme")
+                st.warning(message or "Prøv venligst igen eller kontakt support hvis problemet fortsætter.")
+
         except Exception as e:
-            st.error(f"❌ Uventet fejl opstod: {str(e)}")
+            st.error("❌ Uventet fejl opstod")
             st.warning("Kontakt venligst support med følgende fejlkode:")
-            st.code(str(e))
+            st.exception(e)
 
 
     # Skift mellem sider
@@ -478,7 +476,7 @@ def main():
             new_row_data["Client description"] = st.text_area("Kundebeskrivelse engelsk", height=68)
             new_row_data["Tidsramme_start"] = st.date_input("Start Dato")
             new_row_data["Tidsramme_slut"] = st.date_input("Slut Dato")
-            new_row_data["Konsulenter"] = st.text_area("Konsulenter", placeholder="Skriv fuldt navn på konsulent(er)", height=68)
+            new_row_data["Konsulenter"] = st.text_area("Konsulenter(Projektleder)", placeholder="Skriv fuldt navn på konsulent(er)", height=68)
             new_row_data["EVT. TI budgetandel"] = st.text_area("Budgetandel", placeholder="Tilføj TI's del af budgettet", height=68)
 
         with cols[3]:
