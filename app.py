@@ -12,7 +12,7 @@ import datetime
 url: str = "https://etxhbhpjqoaoowfoscob.supabase.co"
 key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eGhiaHBqcW9hb293Zm9zY29iIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NDcwNTAzNiwiZXhwIjoyMDYwMjgxMDM2fQ.xJ7aC9TrQU-qbdf6KBB9D4FmyANf3NSvEHhpO4-lUEQ"
 
-table_name = "REFERENCEDATABASEN"
+table_name ="REFERENCEDATABASEN"
 
 #######################################################
 ####################### Funktioner ####################
@@ -24,7 +24,7 @@ def init_supabase():
     return create_client(url, key)
 
 # HENT DATA FRA SQL
-def fetch_data(supabase, table_name="test", batch_size=1000):
+def fetch_data(supabase, table_name, batch_size=1000):
     all_data = []
     offset = 0
 
@@ -264,7 +264,7 @@ def main():
 
     # Load data from Supabase
     if "data" not in st.session_state:
-        st.session_state.data = fetch_data(supabase)
+        st.session_state.data = fetch_data(supabase, table_name)
 
     df = st.session_state.data.sort_values(by='opgave_id', ascending=False)
     
@@ -406,7 +406,7 @@ def main():
                     st.success("✅ Ændringer er gemt")
                 
                 # Update session state data
-                st.session_state.data = fetch_data(supabase)
+                st.session_state.data = fetch_data(supabase, table_name)
                 
                 # Update original_data with the current filtered data
                 st.session_state.original_data = edited_data.copy()
@@ -532,7 +532,7 @@ def main():
         st.markdown("<h1 style='text-align: center;'> Eksporter </h1>", unsafe_allow_html=True)
         st.write("Marker et eller flere projekter i tabellen. Herefter kan du eksportere projekterne til et Word dokument eller Excel-ark.")
 
-        format_choice = st.radio("Vælg eksportformat:", ["Tabelformat - Word", "Kort referenceformat - Word", "Excel - format"])
+        format_choice = st.radio("Vælg eksportformat:", ["Tabelformat - Word", "Excel - format"])
 
         if st.button("Eksporter valgte projekter"):
             selected_df = edited_data[edited_data['Select'] == True].drop('Select', axis=1)
@@ -540,14 +540,6 @@ def main():
             if len(selected_df) > 0:
                 if format_choice == "Tabelformat - Word":
                     doc_io = export_projects_table(selected_df)
-                    st.download_button(
-                        label="Download Word Dokument",
-                        data=doc_io.getvalue(),
-                        file_name=f"{fil_navn}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                elif format_choice == "Kort referenceformat - Word":
-                    doc_io = export_projects_Short_presentation(selected_df)
                     st.download_button(
                         label="Download Word Dokument",
                         data=doc_io.getvalue(),
