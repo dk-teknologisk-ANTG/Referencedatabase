@@ -375,7 +375,7 @@ def main():
         st.session_state.original_data = filtered_df.copy()
 
     # Tilføj en gem knap
-    if st.button("** 💾 Gem ændringer**"):
+    if st.button(" 💾 Gem ændringer"):
         try:
             with st.spinner('Gemmer ændringer...'):
                 success, message = update_multiple_rows(
