@@ -12,7 +12,7 @@ import datetime
 url: str = "https://etxhbhpjqoaoowfoscob.supabase.co"
 key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eGhiaHBqcW9hb293Zm9zY29iIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NDcwNTAzNiwiZXhwIjoyMDYwMjgxMDM2fQ.xJ7aC9TrQU-qbdf6KBB9D4FmyANf3NSvEHhpO4-lUEQ"
 
-table_name ="REFERENCEDATABASEN_duplicate"
+table_name ="REFERENCEDATABASEN"
 
 #######################################################
 ####################### Funktioner ####################
