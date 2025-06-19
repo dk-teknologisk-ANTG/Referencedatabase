@@ -288,7 +288,7 @@ def save_to_bytes(doc):
 #########################################################################
 
 def main():
-    st.set_page_config(layout="wide")
+    st.set_page_config(layout="wide", initial_sidebar_state="expanded")
     st.markdown("<h1 style='text-align: center;'>Referencedatabase Erhverv og Samfund 📚</h1>", unsafe_allow_html=True)
 
     # Initialize Supabase
