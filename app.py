@@ -12,7 +12,7 @@ import datetime
 url: str = "https://etxhbhpjqoaoowfoscob.supabase.co"
 key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0eGhiaHBqcW9hb293Zm9zY29iIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NDcwNTAzNiwiZXhwIjoyMDYwMjgxMDM2fQ.xJ7aC9TrQU-qbdf6KBB9D4FmyANf3NSvEHhpO4-lUEQ"
 
-table_name ="REFERENCEDATABASEN"
+table_name ="REFERENCEDATABASEN_duplicate"
 
 #######################################################
 ####################### Funktioner ####################
@@ -43,9 +43,6 @@ def fetch_data(supabase, table_name, batch_size=1000):
     return df
 
 # OPDATER RÆKKER I SQL FRA STREAMLIT
-import pandas as pd
-import streamlit as st
-
 def update_multiple_rows(supabase, table_name, edited_data, original_data):
     try:
         # Check if key column exists
@@ -130,11 +127,52 @@ def get_next_opgave_id(df):
 # TILFØJ EN RÆKKE I SUPABASE
 def append_row(supabase, table_name, row_data):
     try:
+        # Ensure all date fields are converted to string format (ISO)
+        for key, value in row_data.items():
+            if isinstance(value, (datetime.date, pd.Timestamp)):
+                row_data[key] = value.isoformat()
+
         supabase.table(table_name).insert(row_data).execute()
         return True
     except Exception as e:
         st.error(f"Error appending row: {str(e)}")
         return False
+    
+def handle_deletion(supabase, table_name, edited_data):
+    selected_rows = edited_data[edited_data['Select'] == True]
+
+    if not selected_rows.empty:
+        st.session_state.confirm_delete = True
+        st.session_state.rows_to_delete = selected_rows['opgave_id'].tolist()
+    else:
+        st.warning("Du skal vælge mindst én række for at slette.")
+
+def confirm_and_execute_deletion(supabase, table_name):
+    if st.session_state.get("confirm_delete"):
+        st.warning("Er du sikker på, at du vil slette de valgte projekter permanent?")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Ja, slet"):
+                deleted_count = 0
+                for opgave_id in st.session_state.rows_to_delete:
+                    try:
+                        response = supabase.table(table_name).delete().eq("opgave_id", opgave_id).execute()
+                        if response.data is not None:
+                            deleted_count += 1
+                    except Exception as e:
+                        st.error(f"Fejl ved sletning af opgave {opgave_id}: {str(e)}")
+
+                st.success(f"Slettede {deleted_count} projekt(er)")
+                st.session_state.confirm_delete = False
+                st.session_state.rows_to_delete = []
+                st.session_state.data = fetch_data(supabase, table_name)
+                st.rerun()
+        with col2:
+            if st.button("❌ Annuller"):
+                st.session_state.confirm_delete = False
+                st.session_state.rows_to_delete = []
+                st.info("Sletning annulleret.")
+
 
 # HENT UNIKKE NAVNE FRA KONSULENTER KOLONNEN
 def get_unique_names(df, column_name):
@@ -144,6 +182,7 @@ def get_unique_names(df, column_name):
             # Split names and clean whitespace
             all_names.extend([name.strip() for name in names.split(',')])
     return sorted(list(set(all_names)))
+
 #Tabel Export
 def export_projects_table(selected_df):
     columns_to_export = [
@@ -371,9 +410,11 @@ def main():
     if 'original_data' not in st.session_state:
         st.session_state.original_data = filtered_df.copy()
 
-    # Tilføj en gem knap
-    if st.button(" 💾 Gem ændringer"):
-        try:
+    # Create side-by-side columns for Save and Delete buttons
+    col_save, col_delete = st.columns([1, 1])
+
+    with col_save:
+        if st.button("💾 Gem ændringer"):
             with st.spinner('Gemmer ændringer...'):
                 success, message = update_multiple_rows(
                     supabase,
@@ -381,43 +422,22 @@ def main():
                     edited_data,
                     st.session_state.original_data
                 )
-            
+
             if success:
-                # Forsøg at finde antal ændringer
-                num_changes = None
-                try:
-                    # Forventet format: "Opdaterede X rækker"
-                    parts = message.split()
-                    if "Opdaterede" in parts and "rækker" in parts:
-                        idx = parts.index("Opdaterede")
-                        num_changes = int(parts[idx + 1])
-                except Exception:
-                    pass  # Ignore parsing error, fallback below
-
-                if num_changes is not None and num_changes > 0:
-                    st.success(f"✅ {message}")
-                    st.info(f"Database opdateret med {num_changes} ændring{'er' if num_changes > 1 else ''}")
-                elif num_changes == 0:
-                    st.info("Ingen ændringer at gemme")
-                else:
-                    st.success("✅ Ændringer er gemt")
-
-                # Opdater session state
+                st.success(message or "Ændringer er gemt")
                 st.session_state.data = fetch_data(supabase, table_name)
                 st.session_state.original_data = st.session_state.data.copy()
-
-                # Genindlæs siden
-                time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("❌ Fejl i forsøget på at gemme")
-                st.warning(message or "Prøv venligst igen eller kontakt support hvis problemet fortsætter.")
+                st.error("Fejl i forsøget på at gemme")
+                st.warning(message or "Prøv igen eller kontakt support.")
 
-        except Exception as e:
-            st.error("❌ Uventet fejl opstod")
-            st.warning("Kontakt venligst support med følgende fejlkode:")
-            st.exception(e)
+    with col_delete:
+        if st.button("🗑️ Slet valgte projekter"):
+            handle_deletion(supabase, table_name, edited_data)
 
+    # Show confirmation if needed
+    confirm_and_execute_deletion(supabase, table_name)
 
     # Skift mellem sider
     col1, col2, col3 = st.columns([1, 30, 1])
@@ -492,11 +512,7 @@ def main():
             
             if missing_fields:
                 st.error(f"Følgende felter skal udfyldes: {', '.join(missing_fields)}")
-            else:
-                # Convert dates to ISO format
-                new_row_data["Tidsramme_start"] = new_row_data["Tidsramme_start"].strftime('%Y-%m-%d')
-                new_row_data["Tidsramme_slut"] = new_row_data["Tidsramme_slut"].strftime('%Y-%m-%d')
-                
+            else:  
                 if append_row(supabase, table_name, new_row_data):
                     st.success("Nyt projekt tilføjet!")
                     # Clear the form inputs by resetting session state
@@ -505,7 +521,7 @@ def main():
                             del st.session_state[key]
                             
                     # Refresh data
-                    st.session_state.data = fetch_data(supabase)
+                    st.session_state.data = fetch_data(supabase, table_name)
                     st.rerun()
 
     st.markdown("---")
