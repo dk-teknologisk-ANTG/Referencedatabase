@@ -23,6 +23,23 @@ table_name ="REFERENCEDATABASEN"
 def init_supabase():
     return create_client(url, key)
 
+NOTICE_MD = """****INFO om opdateringerℹ️****\n
+- Det er nu muligt at vælge flere projekter på tværs af sider og filtre. Alle markeringer i "Select" kolonnen huskes nu indtil siden genindlæses \n 
+- Der kan opleves problemer med at man er nødt til at klikke to gange i "select" kolonnen for at vælge et projekt. Det arbejder jeg på at få styr på. 
+- Der er tilføjet en knap ("Ryd alle markeringer") knappen fjerner alle markeringer på tværs af hele tabellen.
+\n **Anton**"""
+
+def _ensure_notice_flag():
+    if "show_startup_notice" not in st.session_state:
+        st.session_state.show_startup_notice = True
+
+@st.dialog("Opdateringer")
+def startup_notice():
+    st.markdown(NOTICE_MD)
+    if st.button("OK"):
+        st.session_state.show_startup_notice = False
+        st.rerun()
+
 # HENT DATA FRA SQL
 def fetch_data(supabase, table_name, batch_size=1000):
     all_data = []
@@ -139,11 +156,10 @@ def append_row(supabase, table_name, row_data):
         return False
     
 def handle_deletion(supabase, table_name, edited_data):
-    selected_rows = edited_data[edited_data['Select'] == True]
-
-    if not selected_rows.empty:
+    _ensure_selected()
+    if st.session_state["selected_ids"]:
         st.session_state.confirm_delete = True
-        st.session_state.rows_to_delete = selected_rows['opgave_id'].tolist()
+        st.session_state.rows_to_delete = [int(x) if x.isdigit() else x for x in st.session_state["selected_ids"]]
     else:
         st.warning("Du skal vælge mindst én række for at slette.")
 
@@ -154,24 +170,39 @@ def confirm_and_execute_deletion(supabase, table_name):
         with col1:
             if st.button("✅ Ja, slet"):
                 deleted_count = 0
-                for opgave_id in st.session_state.rows_to_delete:
+                # Gem kopi af IDs før nulstilling
+                to_delete_ids = list(st.session_state.rows_to_delete)
+
+                for opgave_id in to_delete_ids:
                     try:
-                        response = supabase.table(table_name).delete().eq("opgave_id", opgave_id).execute()
-                        if response.data is not None:
-                            deleted_count += 1
+                        resp = supabase.table(table_name).delete().eq("opgave_id", opgave_id).execute()
+                        if resp.data is not None:
+                            # nogle klienter returnerer liste af slettede rækker
+                            deleted_count += len(resp.data) if isinstance(resp.data, list) else 1
                     except Exception as e:
                         st.error(f"Fejl ved sletning af opgave {opgave_id}: {str(e)}")
 
                 st.success(f"Slettede {deleted_count} projekt(er)")
+
+                # Fjern slettede fra global selection (gemmes som str)
+                _ensure_selected()
+                deleted_str_ids = set(str(i) for i in to_delete_ids)
+                st.session_state["selected_ids"] = [
+                    sid for sid in st.session_state["selected_ids"] if sid not in deleted_str_ids
+                ]
+
+                # Nulstil confirm-state og refresh data
                 st.session_state.confirm_delete = False
                 st.session_state.rows_to_delete = []
                 st.session_state.data = fetch_data(supabase, table_name)
                 st.rerun()
+
         with col2:
             if st.button("❌ Annuller"):
                 st.session_state.confirm_delete = False
                 st.session_state.rows_to_delete = []
                 st.info("Sletning annulleret.")
+
 
 
 # HENT UNIKKE NAVNE FRA KONSULENTER KOLONNEN
@@ -283,6 +314,10 @@ def save_to_bytes(doc):
     doc_io.seek(0)
     return doc_io
 
+def _ensure_selected():
+    if "selected_ids" not in st.session_state:
+        st.session_state["selected_ids"] = []
+
 #########################################################################
 ########################## Streamlit frontend ###########################
 #########################################################################
@@ -290,7 +325,10 @@ def save_to_bytes(doc):
 def main():
     st.set_page_config(layout="wide", initial_sidebar_state="expanded")
     st.markdown("<h1 style='text-align: center;'>Referencedatabase Erhverv og Samfund 📚</h1>", unsafe_allow_html=True)
-
+    _ensure_notice_flag()
+    if st.session_state.show_startup_notice:
+        startup_notice()
+    
     # Initialize Supabase
     supabase = init_supabase()
 
@@ -300,8 +338,6 @@ def main():
 
     df = st.session_state.data.sort_values(by='opgave_id', ascending=False)
     
-   
-
     # Filters section
     st.write("### Filtre")
 
@@ -382,18 +418,29 @@ def main():
     start_idx = (st.session_state.current_page - 1) * rows_per_page
     end_idx = min(start_idx + rows_per_page, len(filtered_df))
 
-    # First display the table
-    st.markdown("<h3 style='text-align: center;'> Referenceprojekter</h3>", unsafe_allow_html=True)
+    # Display headline and "Ryd alle markeringer" button side by side
+    col_clear, col_title = st.columns([1, 6])
+    with col_clear:
+        if st.button("Ryd alle markeringer"):
+            st.session_state["selected_ids"] = []
+    with col_title:
+        st.markdown("<h3 style='text-align: center;'> Referenceprojekter</h3>", unsafe_allow_html=True)
+
     page_indices = filtered_df.index[start_idx:end_idx]
     
     # Prepare editable columns
     edited_df = filtered_df.loc[page_indices].copy()
 
-    # Add a selection column to the dataframe
-    edited_df['Select'] = False
-    
-    # Reorder columns to put 'Select' first
-    cols = ['Select'] + [col for col in edited_df.columns if col != 'Select']
+    _ensure_selected()
+
+    # Sørg for ens type (brug str så mix af int/str ikke driller)
+    edited_df["opgave_id"] = edited_df["opgave_id"].astype(str)
+
+    # Sæt 'Select' ud fra global state
+    edited_df["Select"] = edited_df["opgave_id"].isin(st.session_state["selected_ids"])
+
+    # 'Select' først
+    cols = ["Select"] + [c for c in edited_df.columns if c != "Select"]
     edited_df = edited_df[cols]
 
     # Formatering af tabellen, hvor det er muligt at redigere direkte i tabellen
@@ -405,6 +452,20 @@ def main():
             "Select": st.column_config.CheckboxColumn("Select")
         }
     )
+
+    # Sync global selection (kun rækker på den synlige side)
+    page_ids = edited_df["opgave_id"].astype(str).tolist()
+    now_selected = edited_data.loc[edited_data["Select"] == True, "opgave_id"].astype(str).tolist()
+
+    # Tilføj nye markeringer
+    for oid in now_selected:
+        if oid not in st.session_state["selected_ids"]:
+            st.session_state["selected_ids"].append(oid)
+
+    # Fjern afmarkeringer (kun dem på denne side)
+    for oid in page_ids:
+        if oid not in now_selected and oid in st.session_state["selected_ids"]:
+            st.session_state["selected_ids"].remove(oid)
 
     # Gem original data før redigering
     if 'original_data' not in st.session_state:
@@ -546,7 +607,8 @@ def main():
         format_choice = st.radio("Vælg eksportformat:", ["Tabelformat - Word", "Excel - format"])
 
         if st.button("Eksporter valgte projekter"):
-            selected_df = edited_data[edited_data['Select'] == True].drop('Select', axis=1)
+            _ensure_selected()
+            selected_df = df[df["opgave_id"].astype(str).isin(st.session_state["selected_ids"])].copy()
             
             if len(selected_df) > 0:
                 if format_choice == "Tabelformat - Word":
@@ -570,3 +632,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
