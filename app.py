@@ -496,8 +496,10 @@ def main():
     if 'original_data' not in st.session_state:
         st.session_state.original_data = filtered_df.copy()
 
-    # Create side-by-side columns for Save and Delete buttons
-    col_save, col_delete = st.columns([1, 1])
+    st.markdown("<p style='text-align: center;'>HUSK at klikke på \"Gem ændringer\" efter du har redigeret i en reference ellers gemmes dine ændringer ikke</p>", unsafe_allow_html=True)
+
+    # Create side-by-side columns for Save and Delete buttons (centreret)
+    col_left, col_save, col_delete, col_right = st.columns([2.2, 1, 1, 2])
 
     with col_save:
         if st.button("💾 Gem ændringer"):
@@ -660,6 +662,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
