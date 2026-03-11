@@ -67,49 +67,72 @@ def update_multiple_rows(supabase, table_name, edited_data, original_data):
             return False, "Kolonnen 'opgave_id' mangler i data."
 
         edited_df = edited_data.copy()
+        original_df = original_data.copy()  # Lav kopi så vi ikke modificerer original
 
         # Remove UI-specific columns like 'Select'
         edited_df = edited_df.drop(columns=['Select'], errors='ignore')
 
-        # Align datetime formats
+        # Konverter opgave_id til samme type (int) i begge DataFrames
+        edited_df['opgave_id'] = edited_df['opgave_id'].astype(int)
+        original_df['opgave_id'] = original_df['opgave_id'].astype(int)
+
+        # Find fælles kolonner
+        common_cols = [c for c in edited_df.columns if c in original_df.columns]
+
+        # Align datetime formats - kun for kolonner der findes i begge
         datetime_cols = [
-            col for col in edited_df.columns
+            col for col in common_cols
             if pd.api.types.is_datetime64_any_dtype(edited_df[col]) or 
-               pd.api.types.is_datetime64_any_dtype(original_data[col])
+               pd.api.types.is_datetime64_any_dtype(original_df[col])
         ]
 
         for col in datetime_cols:
             edited_df[col] = pd.to_datetime(edited_df[col], errors='coerce')
-            original_data[col] = pd.to_datetime(original_data[col], errors='coerce')
+            original_df[col] = pd.to_datetime(original_df[col], errors='coerce')
 
         changes = []
 
         # Compare rows
         for _, row in edited_df.iterrows():
-            opgave_id = row['opgave_id']
-            original_row = original_data[original_data['opgave_id'] == opgave_id]
+            opgave_id = int(row['opgave_id'])
+            original_row = original_df[original_df['opgave_id'] == opgave_id]
 
             if original_row.empty:
-                continue  # Possibly a new row, ignore
+                continue
 
             original_dict = original_row.iloc[0].to_dict()
             row_dict = row.to_dict()
 
-            # Detect changes
-            has_changed = any(
-                (pd.isna(row_dict[k]) != pd.isna(original_dict.get(k))) or 
-                (not pd.isna(row_dict[k]) and row_dict[k] != original_dict.get(k))
-                for k in row_dict if k in original_dict
-            )
+            # Konverter opgave_id til int i row_dict
+            row_dict['opgave_id'] = int(row_dict['opgave_id'])
+
+            # Detect changes - kun sammenlign fælles kolonner
+            has_changed = False
+            for k in common_cols:
+                new_val = row_dict.get(k)
+                old_val = original_dict.get(k)
+                
+                new_is_na = pd.isna(new_val)
+                old_is_na = pd.isna(old_val)
+                
+                if new_is_na and old_is_na:
+                    continue
+                elif new_is_na != old_is_na:
+                    has_changed = True
+                    break
+                elif new_val != old_val:
+                    has_changed = True
+                    break
 
             if has_changed:
-                update_dict = {
-                    k: (
-                        v.isoformat() if isinstance(v, (pd.Timestamp, pd.DatetimeTZDtype)) else
-                        None if pd.isna(v) else v
-                    )
-                    for k, v in row_dict.items()
-                }
+                update_dict = {}
+                for k, v in row_dict.items():
+                    if isinstance(v, pd.Timestamp):
+                        update_dict[k] = v.isoformat() if not pd.isna(v) else None
+                    elif pd.isna(v):
+                        update_dict[k] = None
+                    else:
+                        update_dict[k] = v
 
                 changes.append({'opgave_id': opgave_id, 'data': update_dict})
 
@@ -125,6 +148,7 @@ def update_multiple_rows(supabase, table_name, edited_data, original_data):
     except Exception as e:
         st.exception(e)
         return False, f"Fejl under opdatering: {str(e)}"
+
     
 #Hent næstekommende opgave id
 def get_next_opgave_id(df):
@@ -347,7 +371,6 @@ def main():
 
     filtered_df = filtered_df1.copy()
 
-    unique_names_projektleder = get_unique_names(filtered_df1, 'Projektleder')
     unique_names_konsulenter = get_unique_names(filtered_df1, 'Deltagende_konsulenter')
 
     # Ensure the columns are datetime
@@ -373,20 +396,10 @@ def main():
     with cols[1]:
         end_date = st.date_input("Slutdato", value=max_date, min_value=min_date, max_value=max_date)
     with cols[2]:
-        selected_projektleder = st.multiselect(
-            "Filter by Projektleder",
-            options=unique_names_projektleder
-        )
         selected_konsulenter = st.multiselect(
             "Filter by Deltagende konsulenter",
             options=unique_names_konsulenter
         )
-
-    # Apply consultant filter if any consultants are selected
-    if selected_projektleder:
-        filtered_df = filtered_df[filtered_df['Projektleder'].apply(
-            lambda x: any(p in str(x) for p in selected_projektleder) if isinstance(x, str) else False
-        )]
 
     # Apply deltagende konsulenter filter
     if selected_konsulenter:
