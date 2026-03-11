@@ -217,10 +217,11 @@ def get_unique_names(df, column_name):
 #Tabel Export
 def export_projects_table(selected_df):
     columns_to_export = [
-    "opgave_id", "Opgavetitel", "Opgavetitel_eng", "Status", "Projektnummer", "Kundenavn",
-    "English name", "Opgavebeskrivelse", "Opgavebeskrivelse_eng", "Kundebeskrivelse",
-    "Client description", "Tidsramme_start", "Tidsramme_slut", "Kontakter", "Opgaveomfang",
-    "EVT. TI budgetandel", "Konsulenter", "Land", "Rapport/projektmappe", "Projektpartnere"]
+        "opgave_id", "Opgavetitel", "Opgavetitel_eng", "Status", "Projektnummer", "Kundenavn",
+        "English name", "Opgavebeskrivelse", "Opgavebeskrivelse_eng", "Kundebeskrivelse",
+        "Client description", "Tidsramme_start", "Tidsramme_slut", "Kontakter", "Opgaveomfang",
+        "EVT. TI budgetandel", "Projektleder", "Deltagende_konsulenter", "Land", 
+        "Rapport/projektmappe", "Projektpartnere"]
     header_column = 'Opgavetitel'
     
     doc = Document()
@@ -346,7 +347,8 @@ def main():
 
     filtered_df = filtered_df1.copy()
 
-    unique_names = get_unique_names(filtered_df1, 'Konsulenter')
+    unique_names_projektleder = get_unique_names(filtered_df1, 'Projektleder')
+    unique_names_konsulenter = get_unique_names(filtered_df1, 'Deltagende_konsulenter')
 
     # Ensure the columns are datetime
     filtered_df["Tidsramme_start"] = pd.to_datetime(filtered_df["Tidsramme_start"], errors="coerce")
@@ -371,15 +373,25 @@ def main():
     with cols[1]:
         end_date = st.date_input("Slutdato", value=max_date, min_value=min_date, max_value=max_date)
     with cols[2]:
-        selected_consultants = st.multiselect(
-            "Filter by Konsulenter",
-            options=unique_names
+        selected_projektleder = st.multiselect(
+            "Filter by Projektleder",
+            options=unique_names_projektleder
+        )
+        selected_konsulenter = st.multiselect(
+            "Filter by Deltagende konsulenter",
+            options=unique_names_konsulenter
         )
 
     # Apply consultant filter if any consultants are selected
-    if selected_consultants:
-        filtered_df = filtered_df[filtered_df['Konsulenter'].apply(
-            lambda x: any(consultant in str(x) for consultant in selected_consultants) if isinstance(x, str) else False
+    if selected_projektleder:
+        filtered_df = filtered_df[filtered_df['Projektleder'].apply(
+            lambda x: any(p in str(x) for p in selected_projektleder) if isinstance(x, str) else False
+        )]
+
+    # Apply deltagende konsulenter filter
+    if selected_konsulenter:
+        filtered_df = filtered_df[filtered_df['Deltagende_konsulenter'].apply(
+            lambda x: any(k in str(x) for k in selected_konsulenter) if isinstance(x, str) else False
         )]
 
     # Add other filters in the remaining columns
@@ -532,7 +544,8 @@ def main():
             new_row_data["Opgavetitel_eng"] = st.text_area("Projekttitel engelsk", height=68)
             new_row_data["Status"] = st.selectbox("Status", ['Vælg status'] + existing_statuses)
             new_row_data["Projektnummer"] = st.text_area("Evt. projektnummer", height=68)
-            
+            new_row_data["Rapport/projektmappe"] = st.text_area("Rapport/projektmappe", placeholder="Indsæt fil-sti eller link", height=68)
+
         with cols[1]:
             new_row_data["Kundenavn"] = st.text_area("Kundenavn", height=68)
             new_row_data["English name"] = st.text_area("Kundenavn engelsk", height=68)
@@ -554,13 +567,15 @@ def main():
             new_row_data["Client description"] = st.text_area("Kundebeskrivelse engelsk", height=68)
             new_row_data["Tidsramme_start"] = st.date_input("Start Dato")
             new_row_data["Tidsramme_slut"] = st.date_input("Slut Dato")
-            new_row_data["Konsulenter"] = st.text_area("Konsulenter(Projektleder)", placeholder="Skriv fuldt navn på konsulent(er)", height=68)
-            new_row_data["EVT. TI budgetandel"] = st.text_area("Budgetandel", placeholder="Tilføj TI's del af budgettet", height=68)
+            new_row_data["Projektleder"] = st.text_area("Projektleder", placeholder="Skriv fuldt navn på projektleder", height=68)
+            new_row_data["Deltagende_konsulenter"] = st.text_area("Deltagende konsulenter", 
+                                                                  placeholder="Skriv fulde navne på deltagende konsulenter (kommasepareret)", height=68)
+            
 
         with cols[3]:
-            new_row_data["Opgaveomfang"] = st.text_area("Opgaveomfang", placeholder="Beløbet skrives i DKK", height=68)
+            new_row_data["Opgaveomfang"] = st.text_area("Opgaveomfang", placeholder="Beløbet skrives i Danske kroner", height=68)
+            new_row_data["EVT. TI budgetandel"] = st.text_area("Budgetandel", placeholder="Tilføj TI's del af budgettet", height=68)
             new_row_data["Land"] = st.text_area("Land", height=68)
-            new_row_data["Rapport/projektmappe"] = st.text_area("Rapport/projektmappe", placeholder="Indsæt fil-sti eller link", height=68)
             new_row_data["Projektpartnere"] = st.text_area("Projektpartnere", placeholder= "Skriv samarbejdsorganisationer ind", height=68)
             new_row_data["Kontakter"] = st.text_area("Kontakter", placeholder= "Skriv gerne\nKontaktperson \nMail \nTlf", height= 120)
 
@@ -632,5 +647,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
