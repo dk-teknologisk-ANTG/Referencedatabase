@@ -1,7 +1,9 @@
 streamlit
-pandas
 supabase
 python-docx
 python-dotenv
 openpyxl
 pytz
+pandas==2.2.3
+pyarrow==17.0.0
+numpy==1.26.4
